@@ -1,0 +1,11 @@
+{
+  "name": "profile-header",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "node build-header.mjs" },
+  "dependencies": {
+    "@fontsource/instrument-serif": "5.2.5",
+    "@fontsource/jetbrains-mono": "5.2.5",
+    "opentype.js": "1.3.4"
+  }
+}
