@@ -3,7 +3,6 @@
 import { writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import opentype from 'opentype.js';
-import { Resvg } from '@resvg/resvg-js';
 
 const require = createRequire(import.meta.url);
 const load = (p) => opentype.loadSync(require.resolve(p));
@@ -148,23 +147,6 @@ function spinnerGlyph(ch, cx, cy) {
   return font.getPath(ch, x, y, STAR_SIZE).toPathData(2);
 }
 
-// The glow is rendered once here and embedded as a small PNG. A live SVG blur would be
-// recomputed by the viewer's browser on every animation frame.
-function bakedGlow(c, name, height, blur, scale) {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${WIDTH} ${height}" width="${WIDTH}" height="${height}">
-<defs>
-<filter id="b" filterUnits="userSpaceOnUse" x="-120" y="-120" width="${WIDTH + 240}" height="${height + 240}"><feGaussianBlur stdDeviation="${blur}"/></filter>
-<linearGradient id="ex"><stop offset="0" stop-color="#000"/><stop offset=".06" stop-color="#fff"/><stop offset=".94" stop-color="#fff"/><stop offset="1" stop-color="#000"/></linearGradient>
-<linearGradient id="ey" x2="0" y2="1"><stop offset="0" stop-color="#000"/><stop offset=".08" stop-color="#fff"/></linearGradient>
-<mask id="mx" maskUnits="userSpaceOnUse" x="0" y="0" width="${WIDTH}" height="${height}"><rect width="${WIDTH}" height="${height}" fill="url(#ex)"/></mask>
-<mask id="my" maskUnits="userSpaceOnUse" x="0" y="0" width="${WIDTH}" height="${height}"><rect width="${WIDTH}" height="${height}" fill="url(#ey)"/></mask>
-</defs>
-<g mask="url(#mx)"><g mask="url(#my)"><path filter="url(#b)" fill="${c.accent}" d="${name.solid}"/></g></g>
-</svg>`;
-  const png = new Resvg(svg, { fitTo: { mode: 'zoom', value: scale } }).render().asPng();
-  return `data:image/png;base64,${Buffer.from(png).toString('base64')}`;
-}
-
 function build(c, name) {
   const commandY = name.bottom + 50;
   const promptY = commandY + LINE;
@@ -176,16 +158,26 @@ function build(c, name) {
   const parts = [];
   const path = (fill, d, attrs = '') => parts.push(`<path fill="${fill}" ${attrs}d="${d}"/>`);
 
-  // the aura: pre-blurred copies of the name, faded out at the image edges
+  // The aura: blurred copies of the name, faded out at the image edges. It has to be a live
+  // filter: GitHub serves SVGs with `default-src 'none'`, which blocks embedded images.
+  const box = `filterUnits="userSpaceOnUse" x="-120" y="-120" width="${WIDTH + 240}" height="${HEIGHT + 240}"`;
   parts.push(
     `<defs>
 <path id="n" d="${name.solid}"/>
 ${name.gradient(c)}
+<filter id="far" ${box}><feGaussianBlur stdDeviation="24"/></filter>
+<filter id="near" ${box}><feGaussianBlur stdDeviation="7"/></filter>
+<linearGradient id="ex"><stop offset="0" stop-color="#000"/><stop offset=".06" stop-color="#fff"/><stop offset=".94" stop-color="#fff"/><stop offset="1" stop-color="#000"/></linearGradient>
+<linearGradient id="ey" x2="0" y2="1"><stop offset="0" stop-color="#000"/><stop offset=".08" stop-color="#fff"/></linearGradient>
+<mask id="mx" maskUnits="userSpaceOnUse" x="0" y="0" width="${WIDTH}" height="${HEIGHT}"><rect width="${WIDTH}" height="${HEIGHT}" fill="url(#ex)"/></mask>
+<mask id="my" maskUnits="userSpaceOnUse" x="0" y="0" width="${WIDTH}" height="${HEIGHT}"><rect width="${WIDTH}" height="${HEIGHT}" fill="url(#ey)"/></mask>
 <linearGradient id="sheen"><stop offset="0" stop-color="${c.sheen}" stop-opacity="0"/><stop offset=".5" stop-color="${c.sheen}" stop-opacity=".85"/><stop offset="1" stop-color="${c.sheen}" stop-opacity="0"/></linearGradient>
 <clipPath id="clip"><use href="#n"/></clipPath>
 </defs>
-<image class="far" opacity=".3" width="${WIDTH}" height="${HEIGHT}" href="${bakedGlow(c, name, HEIGHT, 24, 0.25)}"/>
-<image class="near" opacity="0" width="${WIDTH}" height="${HEIGHT}" href="${bakedGlow(c, name, HEIGHT, 7, 0.34)}"/>`,
+<g mask="url(#mx)"><g mask="url(#my)" fill="${c.accent}">
+<g class="far" opacity=".3" filter="url(#far)"><use href="#n"/></g>
+<g class="near" opacity="0" filter="url(#near)"><use href="#n"/></g>
+</g></g>`,
   );
 
   parts.push(name.markup(c));
